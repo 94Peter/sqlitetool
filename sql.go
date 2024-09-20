@@ -2,7 +2,9 @@ package sqlitetool
 
 import (
 	"bytes"
+	"errors"
 	"os"
+	"sync"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -19,6 +21,10 @@ type SqlMgr interface {
 
 type SqlConf struct {
 	Path string `yaml:"path"`
+
+	db      *DB
+	newOnce sync.Once
+	dbname  string
 }
 
 func (sc *SqlConf) NewSqlMgr() SqlMgr {
@@ -33,8 +39,18 @@ func (sf *SqlConf) getFileName(name string) string {
 	return b.String()
 }
 func (sf *SqlConf) NewDb(name string) (*DB, error) {
-	gorm, err := gorm.Open(sqlite.Open(sf.getFileName(name)), &gorm.Config{})
-	return &DB{DB: gorm}, err
+	sf.newOnce.Do(func() {
+		db, err := gorm.Open(sqlite.Open(sf.getFileName(name)), &gorm.Config{})
+		if err != nil {
+			panic(err)
+		}
+		sf.db = &DB{DB: db}
+		sf.dbname = name
+	})
+	if sf.dbname != name {
+		return nil, errors.New("dbname not match, one application use one db")
+	}
+	return sf.db, nil
 }
 
 func (sf *SqlConf) IsExist(name string) bool {
